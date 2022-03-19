@@ -71,17 +71,57 @@ public static class Program
 
     private static void Guess()
     {
-        double originalSize = commonWordList.Count + uncommonWordList.Count;
+        int originalSize = commonWordList.Count + uncommonWordList.Count;
         double maxMinPruneRate = 0;
         double maxAvgPruneRate = 0;
         string selectedGuessMaxMin = string.Empty;
         string selectedGuessMaxAvg = string.Empty;
         string[] commonWordArray = commonWordList.ToArray();
         string[] uncommonWordArray = uncommonWordList.ToArray();
+        // Arrays of min prune rate. Arrays of avg prune rate
+        double[] minCommonPruneRates = new double[commonWordArray.Length];
+        double[] minUncommonPruneRates = new double[uncommonWordArray.Length];
+        double[] avgCommonPruneRates = new double[commonWordArray.Length];
+        double[] avgUncommonPruneRates = new double[uncommonWordArray.Length];
 
-        // TODO Arrays of min prune rate. Arrays of avg prune rate
+
         // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
-        // fix max min and max avg
+        Parallel.ForEach(commonWordArray, (word, state, index) =>
+            EvaluateGuessWord(word, (int)index, commonWordArray, uncommonWordArray, originalSize, minCommonPruneRates, avgCommonPruneRates)
+        );
+        Parallel.ForEach(uncommonWordArray, (word, state, index) =>
+            EvaluateGuessWord(word, (int)index, uncommonWordArray, commonWordArray, originalSize, minUncommonPruneRates, avgUncommonPruneRates)
+        );
+        // find max min and max avg
+        for (int i = 0; i < commonWordArray.Length; i++)
+        {
+            if (minCommonPruneRates[i] > maxMinPruneRate)
+            {
+                maxMinPruneRate = minCommonPruneRates[i];
+                selectedGuessMaxMin = commonWordArray[i];
+            }
+
+            if (avgCommonPruneRates[i] > maxAvgPruneRate)
+            {
+                maxAvgPruneRate = avgCommonPruneRates[i];
+                selectedGuessMaxAvg = commonWordArray[i];
+            }
+        }
+
+        for (int i = 0; i < uncommonWordArray.Length; ++i)
+        {
+            if (minUncommonPruneRates[i] > maxMinPruneRate)
+            {
+                maxMinPruneRate = minUncommonPruneRates[i];
+                selectedGuessMaxMin = uncommonWordArray[i];
+            }
+
+            if (avgUncommonPruneRates[i] > maxAvgPruneRate)
+            {
+                maxAvgPruneRate = avgUncommonPruneRates[i];
+                selectedGuessMaxAvg = uncommonWordArray[i];
+            }
+        }
         Console.WriteLine("Final selectedGuessMaxMin {0}; prune rate: {1}", selectedGuessMaxMin, maxMinPruneRate);
         Console.WriteLine("FinalselectedGuessMaxAvg {0}; prune rate: {1}", selectedGuessMaxAvg, maxAvgPruneRate);
     }
@@ -148,12 +188,61 @@ public static class Program
         RecalculateWordMaps();
     }
 
+    private static void EvaluateGuessWord(string guessWord, int index, string[] myWordArray, string[] otherWordArray, int originalSize, double[] minPruneRates, double[] avgPruneRates)
+    {
+        double minPruneRate = 1;
+        double sumPruneRate = 0;
+        for (int i = 0; i < myWordArray.Length; i++)
+        {
+            if (index != i)
+            {
+                string resultWord = myWordArray[i];
+                var pruneRate = EvaluatePruneRate(guessWord, resultWord, originalSize);
+                sumPruneRate += pruneRate;
+                if (minPruneRate > pruneRate)
+                {
+                    minPruneRate = pruneRate;
+                }
+            }
+        }
+
+        foreach (string resultWord in otherWordArray)
+        {
+            var pruneRate = EvaluatePruneRate(guessWord, resultWord, originalSize);
+            sumPruneRate += pruneRate;
+            if (minPruneRate > pruneRate)
+            {
+                minPruneRate = pruneRate;
+            }
+        }
+        double avgPruneRate = sumPruneRate / (originalSize - 1);
+        minPruneRates[index] = minPruneRate;
+        avgPruneRates[index] = avgPruneRate;
+        Console.Write("{0}:{1}-{2}; ", guessWord, minPruneRate, avgPruneRate);
+    }
+
+    private static double EvaluatePruneRate(string guessWord, string resultWord, int originalSize)
+    {
+        string guessResult = GenerateMatchResult(guessWord, resultWord);
+        var newLists = EvaluateGuessWord(guessWord + ":" + guessResult);
+        return ((double)(newLists.Item1.Count + newLists.Item2.Count))/originalSize;
+    }
     private static Tuple<HashSet<string>, HashSet<string>> EvaluateGuessWord(string guessWord)
     {
         string[] guessParts = guessWord.Split(':');
         int idx = 0;
         HashSet<CharKey> toRemoveKeys = new HashSet<CharKey>();
         HashSet<CharKey> toKeepKeys = new HashSet<CharKey>();
+        HashSet<int> rightSpotIndices = new HashSet<int>();
+        foreach (char guessState in guessParts[1])
+        {
+            if (guessState == RIGHT_SPOT)
+            {
+                rightSpotIndices.Add(idx);
+            }
+            ++idx;
+        }
+        idx = 0;
         foreach (char guessChar in guessParts[0])
         {
             char guessState = guessParts[1][idx];
@@ -182,7 +271,7 @@ public static class Program
                         {
                             toRemoveKeys.Add(key2);
                         }
-                        else
+                        else if (!rightSpotIndices.Contains(i))
                         {
                             toKeepKeys.Add(key2);
                         }
