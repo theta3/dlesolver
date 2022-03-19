@@ -76,7 +76,12 @@ public static class Program
         double maxAvgPruneRate = 0;
         string selectedGuessMaxMin = string.Empty;
         string selectedGuessMaxAvg = string.Empty;
+        string[] commonWordArray = commonWordList.ToArray();
+        string[] uncommonWordArray = uncommonWordList.ToArray();
 
+        // TODO Arrays of min prune rate. Arrays of avg prune rate
+        // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
+        // fix max min and max avg
         Console.WriteLine("Final selectedGuessMaxMin {0}; prune rate: {1}", selectedGuessMaxMin, maxMinPruneRate);
         Console.WriteLine("FinalselectedGuessMaxAvg {0}; prune rate: {1}", selectedGuessMaxAvg, maxAvgPruneRate);
     }
