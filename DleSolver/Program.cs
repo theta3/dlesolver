@@ -34,6 +34,7 @@ public static class Program
             Console.WriteLine("5. Make a guess");
             Console.WriteLine("6. Clear");
             Console.WriteLine("7. Generate guess result");
+            Console.WriteLine("8. Convert retention rate to prune rate");
             int.TryParse(Console.ReadLine(), out option);
             switch(option)
             {
@@ -61,6 +62,9 @@ public static class Program
                 case 7:
                     GenerateMatchResult();
                     break;
+                case 8:
+                    ConvertRetentionToPruneRate().Wait();
+                    break;
             }
         }
         while (option > 0);
@@ -71,7 +75,28 @@ public static class Program
         Console.WriteLine("DONE");
     }
 
-    private static async Task Guess()
+    private static async Task ConvertRetentionToPruneRate()
+    {
+        Console.Write("Input file:");
+        string fPath = Console.ReadLine() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(fPath))
+        {
+            string[] lines = await File.ReadAllLinesAsync(fPath);
+            List<string> output = new List<string>();
+            foreach (var line in lines)
+            {
+                var parts = line.Split(SEPARATOR);
+                if (parts.Length == 2 && double.TryParse(parts[1], out double rate))
+                {
+                    output.Add(parts[0] + SEPARATOR + (1.0 - rate));
+                }
+            }
+            string fileName = Path.GetFileNameWithoutExtension(fPath);
+            await File.WriteAllLinesAsync(Path.Combine(Path.GetDirectoryName(fPath) ?? string.Empty, fileName + "-pruned.txt"), output);
+        }
+    }
+
+        private static async Task Guess()
     {
         int originalSize = commonWordList.Count + uncommonWordList.Count;
         double maxAvgPruneRate = 0;
@@ -269,21 +294,28 @@ public static class Program
         string guessResult = GenerateMatchResult(guessWord, resultWord);
         var newLists = EvaluateGuessWord(guessWord + SEPARATOR + guessResult);
         return newLists.IsSubtract ?
-            1.0 - ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count))/originalSize :
-            ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count)) / originalSize;
+            ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count))/originalSize :
+            1.0 - ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count)) / originalSize;
     }
     private static EvalResult EvaluateGuessWord(string guessWord)
     {
         string[] guessParts = guessWord.Split(':');
         int idx = 0;
+        HashSet<CharKey> intersectKeepKeys = new HashSet<CharKey>();
+        HashSet<CharKey> unionKeepKeys = new HashSet<CharKey>();
         HashSet<CharKey> toRemoveKeys = new HashSet<CharKey>();
-        HashSet<CharKey> toKeepKeys = new HashSet<CharKey>();
         HashSet<int> rightSpotIndices = new HashSet<int>();
         foreach (char guessState in guessParts[1])
         {
             if (guessState == RIGHT_SPOT)
             {
                 rightSpotIndices.Add(idx);
+                char guessChar = guessParts[0][idx];
+                unionKeepKeys.Add(new CharKey()
+                {
+                    Char = guessChar,
+                    Index = idx
+                });
             }
             ++idx;
         }
@@ -318,30 +350,84 @@ public static class Program
                         }
                         else if (!rightSpotIndices.Contains(i))
                         {
-                            toKeepKeys.Add(key2);
+                            unionKeepKeys.Add(key2);
                         }
                     }
-                    break;
-                case RIGHT_SPOT:
-                    var key3 = new CharKey()
-                    {
-                        Char = guessChar,
-                        Index = idx
-                    };
-                    toKeepKeys.Add(key3);
                     break;
             }
             ++idx;
         }
 
         EvalResult result = new EvalResult();
-        if (toKeepKeys.Count > 0)
+        if (intersectKeepKeys.Count > 0 ||
+            unionKeepKeys.Count > 0)
         {
             var newCommonWordList = new HashSet<string>();
             var newUncommonWordList = new HashSet<string>();
-            foreach (var keepKey in toKeepKeys)
+            foreach (var intersectKey in intersectKeepKeys)
             {
-                if (commonWordMap.TryGetValue(keepKey, out var keepList1))
+                if (commonWordMap.TryGetValue(intersectKey, out var keepList1))
+                {
+                    HashSet<string> newList = new HashSet<string>();
+                    foreach (var word in keepList1!)
+                    {
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                        {
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newList.Add(word.WordStr);
+                        }
+                    }
+                    if (newCommonWordList.Count == 0)
+                    {
+                        newCommonWordList = new HashSet<string>(newList);
+                    }
+                    else
+                    {
+                        newCommonWordList.IntersectWith(newList);
+                    }
+                }
+                if (uncommonWordMap.TryGetValue(intersectKey, out var keepList2))
+                {
+                    HashSet<string> newList = new HashSet<string>();
+                    foreach (var word in keepList2!)
+                    {
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                        {
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newList.Add(word.WordStr);
+                        }
+                    }
+                    if (newUncommonWordList.Count == 0)
+                    {
+                        newUncommonWordList = new HashSet<string>(newList);
+                    }
+                    else
+                    {
+                        newUncommonWordList.IntersectWith(newList);
+                    }
+                }
+            }
+            foreach (var unionKey in unionKeepKeys)
+            {
+                if (commonWordMap.TryGetValue(unionKey, out var keepList1))
                 {
                     foreach (var word in keepList1!)
                     {
@@ -361,8 +447,9 @@ public static class Program
                         }
                     }
                 }
-                if (uncommonWordMap.TryGetValue(keepKey, out var keepList2))
+                if (uncommonWordMap.TryGetValue(unionKey, out var keepList2))
                 {
+                    HashSet<string> newList = new HashSet<string>();
                     foreach (var word in keepList2!)
                     {
                         bool toKeep = true;
