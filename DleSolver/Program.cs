@@ -9,6 +9,7 @@ public static class Program
     private const char WRONG_SPOT = '?';
     private const char RIGHT_SPOT = '+';
     private const char SEPARATOR = ':';
+    private const int MAX_CONCURRENCY = 100;
     private static HashSet<string> commonWordList;
     private static HashSet<string> uncommonWordList;
     private static Dictionary<CharKey, HashSet<Word>> commonWordMap;
@@ -49,7 +50,7 @@ public static class Program
                     AddGuessWord();
                     break;
                 case 5:
-                    Guess();
+                    Guess().Wait();
                     break;
                 case 6:
                     commonWordList = new HashSet<string>();
@@ -70,7 +71,7 @@ public static class Program
         Console.WriteLine("DONE");
     }
 
-    private static void Guess()
+    private static async Task Guess()
     {
         int originalSize = commonWordList.Count + uncommonWordList.Count;
         double maxAvgPruneRate = 0;
@@ -80,16 +81,53 @@ public static class Program
         // Arrays of min prune rate. Arrays of avg prune rate
         double[] avgCommonPruneRates = new double[commonWordArray.Length];
         double[] avgUncommonPruneRates = new double[uncommonWordArray.Length];
+        Console.Write("Saved prune rate file path (ENTER to skip):");
+        string pruneRatePath = Console.ReadLine() ?? string.Empty;
+        Dictionary<string, double> savedPruneRates = new Dictionary<string, double>();
+        if (!string.IsNullOrWhiteSpace(pruneRatePath))
+        {
+            string[] lines = await File.ReadAllLinesAsync(pruneRatePath);
+            foreach (var line in lines)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    var parts = line.Split(SEPARATOR);
+                    if (parts.Length == 2 && double.TryParse(parts[1], out double rate))
+                    {
+                        savedPruneRates[parts[0]] = rate;
+                    }
+                }
+            }
+        }
 
-
-
-        // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
-        Parallel.ForEach(commonWordArray, (word, state, index) =>
-            EvaluateGuessWord(word, (int)index, commonWordArray, uncommonWordArray, originalSize, avgCommonPruneRates)
-        );
-        Parallel.ForEach(uncommonWordArray, (word, state, index) =>
-            EvaluateGuessWord(word, (int)index, uncommonWordArray, commonWordArray, originalSize, avgUncommonPruneRates)
-        );
+        int iterCount = commonWordArray.Length / MAX_CONCURRENCY + 1;
+        for (int i = 0; i < iterCount; i++)
+        {
+            int startIndex = i * MAX_CONCURRENCY;
+            int length = i == iterCount - 1 ? commonWordArray.Length - startIndex : MAX_CONCURRENCY;
+            string[] smallerArray = new string[length];
+            Array.Copy(commonWordArray, startIndex, smallerArray, 0, length);
+            List<string> newLines = new List<string>();
+            // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
+            Parallel.ForEach(smallerArray, (word, state, index) =>
+                EvaluateGuessWord(word, (int)(startIndex + index), commonWordArray, uncommonWordArray, originalSize, avgCommonPruneRates, savedPruneRates, newLines)
+            );
+            await File.AppendAllLinesAsync(pruneRatePath, newLines);
+        }
+        iterCount = uncommonWordArray.Length / MAX_CONCURRENCY + 1;
+        for (int i = 0; i < iterCount; i++)
+        {
+            int startIndex = i * MAX_CONCURRENCY;
+            int length = i == iterCount - 1 ? uncommonWordArray.Length - startIndex : MAX_CONCURRENCY;
+            string[] smallerArray = new string[length];
+            Array.Copy(uncommonWordArray, startIndex, smallerArray, 0, length);
+            List<string> newLines = new List<string>();
+            // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
+            Parallel.ForEach(smallerArray, (word, state, index) =>
+                EvaluateGuessWord(word, (int)(startIndex + index), uncommonWordArray, commonWordArray, originalSize, avgUncommonPruneRates, savedPruneRates, newLines)
+            );
+            await File.AppendAllLinesAsync(pruneRatePath, newLines);
+        }
         // find max avg
         for (int i = 0; i < commonWordArray.Length; i++)
         {
@@ -173,8 +211,14 @@ public static class Program
         RecalculateWordMaps();
     }
 
-    private static void EvaluateGuessWord(string guessWord, int index, string[] myWordArray, string[] otherWordArray, int originalSize, double[] avgPruneRates)
+    private static void EvaluateGuessWord(string guessWord,
+        int index, string[] myWordArray, string[] otherWordArray, int originalSize, double[] avgPruneRates, Dictionary<string, double> savedPruneRates, List<string> newLines)
     {
+        if (savedPruneRates.TryGetValue(guessWord, out double val))
+        {
+            Console.Write("{0}:{1}/ ", guessWord, val);
+            return;
+        }
         double sumPruneRate = 0;
         for (int i = 0; i < myWordArray.Length; i++)
         {
@@ -193,7 +237,9 @@ public static class Program
         }
         double avgPruneRate = sumPruneRate / (originalSize - 1);
         avgPruneRates[index] = avgPruneRate;
-        Console.Write("{0}:{2}; ", guessWord, avgPruneRate);
+        savedPruneRates[guessWord] = avgPruneRate;
+        newLines.Add(guessWord + SEPARATOR + avgPruneRate);
+        Console.Write("{0}:{1}; ", guessWord, avgPruneRate);
     }
 
     private static double EvaluatePruneRate(string guessWord, string resultWord, int originalSize)
