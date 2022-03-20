@@ -212,8 +212,23 @@ public static class Program
     private static void AddGuessWord(string guessWord)
     {
         var newLists = EvaluateGuessWord(guessWord);
-        commonWordList = newLists.Item1;
-        uncommonWordList = newLists.Item2;
+        if (newLists.IsSubtract)
+        {
+            foreach (var word in newLists.CommonWordList)
+            {
+                commonWordList.Remove(word);
+            }
+
+            foreach (var word in newLists.UncommonWordList)
+            {
+                uncommonWordList.Remove(word);
+            }
+        }
+        else
+        {
+            commonWordList = newLists.CommonWordList;
+            uncommonWordList = newLists.UncommonWordList;
+        }
         RecalculateWordMaps();
     }
 
@@ -253,9 +268,11 @@ public static class Program
     {
         string guessResult = GenerateMatchResult(guessWord, resultWord);
         var newLists = EvaluateGuessWord(guessWord + SEPARATOR + guessResult);
-        return ((double)(newLists.Item1.Count + newLists.Item2.Count))/originalSize;
+        return newLists.IsSubtract ?
+            1.0 - ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count))/originalSize :
+            ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count)) / originalSize;
     }
-    private static Tuple<HashSet<string>, HashSet<string>> EvaluateGuessWord(string guessWord)
+    private static EvalResult EvaluateGuessWord(string guessWord)
     {
         string[] guessParts = guessWord.Split(':');
         int idx = 0;
@@ -317,6 +334,7 @@ public static class Program
             ++idx;
         }
 
+        EvalResult result = new EvalResult();
         if (toKeepKeys.Count > 0)
         {
             var newCommonWordList = new HashSet<string>();
@@ -365,12 +383,33 @@ public static class Program
                 }
             }
 
-            return Tuple.Create(newCommonWordList, newUncommonWordList);
+            result.CommonWordList = newCommonWordList;
+            result.UncommonWordList = newUncommonWordList;
         }
         else
         {
+            result.IsSubtract = true;
+            foreach (var removeKey in toRemoveKeys)
+            {
+                if (commonWordMap.TryGetValue(removeKey, out var list1))
+                {
+                    foreach (var word in list1)
+                    {
+                        result.CommonWordList.Add(word.WordStr);
+                    }
+                }
 
+                if (uncommonWordMap.TryGetValue(removeKey, out var list2))
+                {
+                    foreach (var word in list2)
+                    {
+                        result.UncommonWordList.Add(word.WordStr);
+                    }
+                }
+            }
         }
+
+        return result;
     }
 
     private static void RecalculateWordMaps()
