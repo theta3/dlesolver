@@ -17,7 +17,7 @@ public static class Program
 
     public static void Main(string[] args)
     {
-        Console.WriteLine("Welcome to -Dle Solver v0.3");
+        Console.WriteLine("Welcome to -Dle Solver v0.4");
         commonWordList = new HashSet<string>();
         uncommonWordList = new HashSet<string>();
         commonWordMap = new Dictionary<CharKey, HashSet<Word>>();
@@ -112,7 +112,10 @@ public static class Program
             Parallel.ForEach(smallerArray, (word, state, index) =>
                 EvaluateGuessWord(word, (int)(startIndex + index), commonWordArray, uncommonWordArray, originalSize, avgCommonPruneRates, savedPruneRates, newLines)
             );
-            await File.AppendAllLinesAsync(pruneRatePath, newLines);
+            if (!string.IsNullOrWhiteSpace(pruneRatePath))
+            {
+                await File.AppendAllLinesAsync(pruneRatePath, newLines);
+            }
         }
         iterCount = uncommonWordArray.Length / MAX_CONCURRENCY + 1;
         for (int i = 0; i < iterCount; i++)
@@ -126,7 +129,10 @@ public static class Program
             Parallel.ForEach(smallerArray, (word, state, index) =>
                 EvaluateGuessWord(word, (int)(startIndex + index), uncommonWordArray, commonWordArray, originalSize, avgUncommonPruneRates, savedPruneRates, newLines)
             );
-            await File.AppendAllLinesAsync(pruneRatePath, newLines);
+            if (!string.IsNullOrWhiteSpace(pruneRatePath))
+            {
+                await File.AppendAllLinesAsync(pruneRatePath, newLines);
+            }
         }
         // find max avg
         for (int i = 0; i < commonWordArray.Length; i++)
@@ -195,7 +201,7 @@ public static class Program
 
     private static void AddGuessWord()
     {
-        Console.Write("Enter word in format <word>:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot", WRONG, WRONG_SPOT, RIGHT_SPOT);
+        Console.Write("Enter word in format <word>:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot:", WRONG, WRONG_SPOT, RIGHT_SPOT);
         string guessWord = Console.ReadLine() ?? string.Empty;
         if (guessWord.Length == NUM_OF_CHARS * 2 + 1)
         {
@@ -216,6 +222,7 @@ public static class Program
     {
         if (savedPruneRates.TryGetValue(guessWord, out double val))
         {
+            avgPruneRates[index] = val;
             Console.Write("{0}:{1}/ ", guessWord, val);
             return;
         }
@@ -310,53 +317,60 @@ public static class Program
             ++idx;
         }
 
-        var newCommonWordList = new HashSet<string>();
-        var newUncommonWordList = new HashSet<string>();
-        foreach (var keepKey in toKeepKeys)
+        if (toKeepKeys.Count > 0)
         {
-            if (commonWordMap.TryGetValue(keepKey, out var keepList1))
+            var newCommonWordList = new HashSet<string>();
+            var newUncommonWordList = new HashSet<string>();
+            foreach (var keepKey in toKeepKeys)
             {
-                foreach (var word in keepList1!)
+                if (commonWordMap.TryGetValue(keepKey, out var keepList1))
                 {
-                    bool toKeep = true;
-                    foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                    foreach (var word in keepList1!)
                     {
-                        if (toRemoveKeys.Contains(otherKey))
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
                         {
-                            toKeep = false;
-                            break;
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newCommonWordList.Add(word.WordStr);
                         }
                     }
-
-                    if (toKeep)
+                }
+                if (uncommonWordMap.TryGetValue(keepKey, out var keepList2))
+                {
+                    foreach (var word in keepList2!)
                     {
-                        newCommonWordList.Add(word.WordStr);
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                        {
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newUncommonWordList.Add(word.WordStr);
+                        }
                     }
                 }
             }
-            if (uncommonWordMap.TryGetValue(keepKey, out var keepList2))
-            {
-                foreach (var word in keepList2!)
-                {
-                    bool toKeep = true;
-                    foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                    {
-                        if (toRemoveKeys.Contains(otherKey))
-                        {
-                            toKeep = false;
-                            break;
-                        }
-                    }
 
-                    if (toKeep)
-                    {
-                        newUncommonWordList.Add(word.WordStr);
-                    }
-                }
-            }
+            return Tuple.Create(newCommonWordList, newUncommonWordList);
         }
+        else
+        {
 
-        return Tuple.Create(newCommonWordList, newUncommonWordList);
+        }
     }
 
     private static void RecalculateWordMaps()
