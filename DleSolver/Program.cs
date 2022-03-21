@@ -20,7 +20,7 @@ public static class Program
 
     public static void Main(string[] args)
     {
-        Console.WriteLine("Welcome to -Dle Solver v0.6");
+        Console.WriteLine("Welcome to -Dle Solver v0.7");
         Console.Write("Number of puzzles:");
         int pnumber = int.Parse(Console.ReadLine() ?? "1");
         commonWordLists = new HashSet<string>[pnumber];
@@ -338,205 +338,207 @@ public static class Program
     {
         string[] guessParts = guessWord.Split(':');
         int idx = 0;
-        HashSet<CharKey> intersectKeepKeys = new HashSet<CharKey>();
-        HashSet<CharKey> unionKeepKeys = new HashSet<CharKey>();
+        List<IEnumerable<string>> intersectCommonSets = new List<IEnumerable<string>>();
+        List<IEnumerable<string>> intersectUncommonSets = new List<IEnumerable<string>>();
         HashSet<CharKey> toRemoveKeys = new HashSet<CharKey>();
         HashSet<int> rightSpotIndices = new HashSet<int>();
         foreach (char guessState in guessParts[1])
         {
-            if (guessState == RIGHT_SPOT)
+            if (guessState == WRONG)
             {
-                rightSpotIndices.Add(idx);
-                char guessChar = guessParts[0][idx];
-                intersectKeepKeys.Add(new CharKey()
+                for (int i = 0; i < NUM_OF_CHARS; i++)
                 {
-                    Char = guessChar,
+                    toRemoveKeys.Add(new CharKey()
+                    {
+                        Char = guessParts[0][idx],
+                        Index = i
+                    });
+                }
+            }
+            else if (guessState == WRONG_SPOT)
+            {
+                toRemoveKeys.Add(new CharKey()
+                {
+                    Char = guessParts[0][idx],
                     Index = idx
                 });
+            }
+            else if (guessState == RIGHT_SPOT)
+            {
+                rightSpotIndices.Add(idx);
             }
             ++idx;
         }
         idx = 0;
-        foreach (char guessChar in guessParts[0])
+        foreach (char guessState in guessParts[1])
         {
-            char guessState = guessParts[1][idx];
-            switch (guessState)
+            char guessChar = guessParts[0][idx];
+            if (guessState == RIGHT_SPOT)
             {
-                case WRONG:
-                    for (int i = 0; i < NUM_OF_CHARS; ++i)
+                var intersectKey = new CharKey()
+                {
+                    Char = guessChar,
+                    Index = idx
+                };
+                if (commonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList1))
+                {
+                    HashSet<string> newList = new HashSet<string>();
+                    foreach (var word in keepList1!)
                     {
-                        var key1 = new CharKey()
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                        {
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newList.Add(word.WordStr);
+                        }
+                    }
+                    if (newList.Count > 0)
+                    {
+                        intersectCommonSets.Add(newList);
+                    }
+                }
+                if (uncommonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList2))
+                {
+                    HashSet<string> newList = new HashSet<string>();
+                    foreach (var word in keepList2!)
+                    {
+                        bool toKeep = true;
+                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                        {
+                            if (toRemoveKeys.Contains(otherKey))
+                            {
+                                toKeep = false;
+                                break;
+                            }
+                        }
+
+                        if (toKeep)
+                        {
+                            newList.Add(word.WordStr);
+                        }
+                    }
+                    if (newList.Count > 0)
+                    {
+                        intersectUncommonSets.Add(newList);
+                    }
+                }
+            }
+            else if (guessState == WRONG_SPOT)
+            {
+                List<string> commonWordList = new List<string>();
+                List<string> uncommonWordList = new List<string>();
+                HashSet<CharKey> unionKeepKeys = new HashSet<CharKey>();
+                for (int i = 0; i < NUM_OF_CHARS; ++i)
+                {
+                    if (i != idx && !rightSpotIndices.Contains(i))
+                    {
+                        unionKeepKeys.Add(new CharKey()
                         {
                             Char = guessChar,
                             Index = i
-                        };
-                        toRemoveKeys.Add(key1);
+                        });
                     }
-                    break;
-                case WRONG_SPOT:
-                    for (int i = 0; i < NUM_OF_CHARS; ++i)
+                }
+                foreach (var unionKeepKey in unionKeepKeys)
+                {
+                    if (commonWordMaps[pzIdx].TryGetValue(unionKeepKey, out var keepList1))
                     {
-                        var key2 = new CharKey()
+                        foreach (var word in keepList1!)
                         {
-                            Char = guessChar,
-                            Index = i
-                        };
-                        if (i == idx)
-                        {
-                            toRemoveKeys.Add(key2);
-                        }
-                        else if (!rightSpotIndices.Contains(i))
-                        {
-                            unionKeepKeys.Add(key2);
+                            bool toKeep = true;
+                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                            {
+                                if (toRemoveKeys.Contains(otherKey))
+                                {
+                                    toKeep = false;
+                                    break;
+                                }
+                            }
+
+                            if (toKeep)
+                            {
+                                commonWordList.Add(word.WordStr);
+                            }
                         }
                     }
-                    break;
+                    if (uncommonWordMaps[pzIdx].TryGetValue(unionKeepKey, out var keepList2))
+                    {
+                        foreach (var word in keepList2!)
+                        {
+                            bool toKeep = true;
+                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
+                            {
+                                if (toRemoveKeys.Contains(otherKey))
+                                {
+                                    toKeep = false;
+                                    break;
+                                }
+                            }
+
+                            if (toKeep)
+                            {
+                                uncommonWordList.Add(word.WordStr);
+                            }
+                        }
+                    }
+                }
+
+                if (commonWordList.Count > 0)
+                {
+                    intersectCommonSets.Add(commonWordList);
+                }
+                if (uncommonWordList.Count > 0)
+                {
+                    intersectUncommonSets.Add(uncommonWordList);
+                }
             }
             ++idx;
         }
 
         EvalResult result = new EvalResult();
-        if (intersectKeepKeys.Count > 0 ||
-            unionKeepKeys.Count > 0)
+        if (intersectCommonSets.Count > 0)
         {
-            var newCommonWordList = new HashSet<string>();
-            var newUncommonWordList = new HashSet<string>();
-            if (intersectKeepKeys.Count > 0)
+            idx = 0;
+            foreach (var s in intersectCommonSets)
             {
-                foreach (var intersectKey in intersectKeepKeys)
+                if (idx == 0)
                 {
-                    if (commonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList1))
-                    {
-                        HashSet<string> newList = new HashSet<string>();
-                        foreach (var word in keepList1!)
-                        {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                newList.Add(word.WordStr);
-                            }
-                        }
-                        if (newCommonWordList.Count == 0)
-                        {
-                            newCommonWordList = new HashSet<string>(newList);
-                        }
-                        else
-                        {
-                            newCommonWordList.IntersectWith(newList);
-                        }
-                    }
-                    if (uncommonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList2))
-                    {
-                        HashSet<string> newList = new HashSet<string>();
-                        foreach (var word in keepList2!)
-                        {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                newList.Add(word.WordStr);
-                            }
-                        }
-                        if (newUncommonWordList.Count == 0)
-                        {
-                            newUncommonWordList = new HashSet<string>(newList);
-                        }
-                        else
-                        {
-                            newUncommonWordList.IntersectWith(newList);
-                        }
-                    }
-                }
-            }
-            if (unionKeepKeys.Count > 0)
-            {
-                var newCommonUnionList = new HashSet<string>();
-                var newUncommonUnionList = new HashSet<string>();
-                foreach (var unionKey in unionKeepKeys)
-                {
-                    if (commonWordMaps[pzIdx].TryGetValue(unionKey, out var keepList1))
-                    {
-                        foreach (var word in keepList1!)
-                        {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                newCommonUnionList.Add(word.WordStr);
-                            }
-                        }
-                    }
-                    if (uncommonWordMaps[pzIdx].TryGetValue(unionKey, out var keepList2))
-                    {
-                        HashSet<string> newList = new HashSet<string>();
-                        foreach (var word in keepList2!)
-                        {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                newUncommonUnionList.Add(word.WordStr);
-                            }
-                        }
-                    }
-                }
-
-                if (newCommonWordList.Count > 0)
-                {
-                    newCommonWordList.IntersectWith(newCommonUnionList);
+                    result.CommonWordList = new HashSet<string>(s);
                 }
                 else
                 {
-                    newCommonWordList = newCommonUnionList;
+                    result.CommonWordList.IntersectWith(s);
                 }
-
-                if (newUncommonWordList.Count > 0)
-                {
-                    newUncommonWordList.IntersectWith(newUncommonUnionList);
-                }
-                else
-                {
-                    newUncommonWordList = newUncommonUnionList;
-                }
+                ++idx;
             }
-
-            result.CommonWordList = newCommonWordList;
-            result.UncommonWordList = newUncommonWordList;
         }
-        else
+        if (intersectUncommonSets.Count > 0)
+        {
+            idx = 0;
+            foreach (var s in intersectUncommonSets)
+            {
+                if (idx == 0)
+                {
+                    result.UncommonWordList = new HashSet<string>(s);
+                }
+                else
+                {
+                    result.UncommonWordList.IntersectWith(s);
+                }
+                ++idx;
+            }
+        }
+
+        if (result.CommonWordList.Count == 0 &&
+            result.UncommonWordList.Count == 0)
         {
             result.IsSubtract = true;
             foreach (var removeKey in toRemoveKeys)

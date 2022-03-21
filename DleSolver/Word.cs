@@ -9,15 +9,16 @@
         {
             var other = obj as Word;
             if (other == null) return false;
-            return WordStr.Equals(other.WordStr) && CharKeysExcludeSourceKey.SetEquals(other.CharKeysExcludeSourceKey);
+            return WordStr.Equals(other.WordStr) /*&& CharKeysExcludeSourceKey.SetEquals(other.CharKeysExcludeSourceKey)*/;
         }
 
         public override int GetHashCode()
         {
-            int hash = 17;
+            /*int hash = 17;
             hash = hash * 23 + WordStr.GetHashCode();
             hash = hash * 23 + CharKeysExcludeSourceKey.GetHashCode();
-            return hash;
+            return hash;*/
+            return WordStr.GetHashCode() ;
         }
     }
 }
