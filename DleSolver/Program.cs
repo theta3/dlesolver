@@ -139,8 +139,12 @@ public static class Program
         // Arrays of min prune rate. Arrays of avg prune rate
         double[] avgCommonPruneRates = new double[commonWordArray.Length];
         double[] avgUncommonPruneRates = new double[uncommonWordArray.Length];
-        Console.Write("Saved prune rate file path (ENTER to skip):");
-        string pruneRatePath = Console.ReadLine() ?? string.Empty;
+        string pruneRatePath = string.Empty;
+        if (listIndex == 0)
+        {
+            Console.Write("Saved prune rate file path (ENTER to skip):");
+            pruneRatePath = Console.ReadLine() ?? string.Empty;
+        }
         Dictionary<string, double> savedPruneRates = new Dictionary<string, double>();
         if (!string.IsNullOrWhiteSpace(pruneRatePath))
         {
@@ -259,14 +263,16 @@ public static class Program
 
     private static void AddGuessWord()
     {
+        Console.Write("Enter word:");
+        string w = Console.ReadLine() ?? string.Empty;
         foreach (var i in indices)
         {
             Console.WriteLine("PUZZLE " + i);
-            Console.Write("Enter word in format <word>:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot:", WRONG, WRONG_SPOT, RIGHT_SPOT);
-            string guessWord = Console.ReadLine() ?? string.Empty;
-            if (guessWord.Length == NUM_OF_CHARS * 2 + 1)
+            Console.Write("Enter guess result:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot:", WRONG, WRONG_SPOT, RIGHT_SPOT);
+            string r = Console.ReadLine() ?? string.Empty;
+            if (r.Length == NUM_OF_CHARS)
             {
-                AddGuessWord(i, guessWord);
+                AddGuessWord(i, w + ":" + r);
             }
         }
     }
