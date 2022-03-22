@@ -10,7 +10,7 @@
         /// <summary>
         /// Positions that are wrong chars in the latest guess
         /// </summary>
-        public HashSet<int> WrongCharIndices { get; private set; } = new HashSet<int>();
+       // public HashSet<int> WrongCharIndices { get; private set; } = new HashSet<int>();
 
         public int Count()
         {
@@ -74,7 +74,7 @@
             }
         }
 
-        public void CaptureWrongCharIndices(string guessResult)
+        /*public void CaptureWrongCharIndices(string guessResult)
         {
             WrongCharIndices.Clear();
             int idx = 0;
@@ -86,7 +86,7 @@
                 }
                 ++idx;
             }
-        }
+        }*/
 
         public void SubtractWord(string line)
         {
