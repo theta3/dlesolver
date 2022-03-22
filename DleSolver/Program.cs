@@ -404,26 +404,35 @@ public static class Program
 
     private static string GenerateMatchResult(string guessWord, string resultWord)
     {
-        StringBuilder result = new StringBuilder();
-        int idx = 0;
-        foreach (char c in guessWord)
+        char[] resultChars = new char[resultWord.Length];
+        char[] resultWordChars = resultWord.ToCharArray();
+        for(int i = 0; i < resultWordChars.Length; ++i)
         {
-            if (c == resultWord[idx])
+            char c = guessWord[i];
+            if (c == resultWordChars[i])
             {
-                result.Append(RIGHT_SPOT);
+                resultChars[i] = RIGHT_SPOT;
+                resultWordChars[i] = '0'; // zero out so we can calculate WRONG_SPOT correctly
             }
-            else if (resultWord.Contains(c))
+        }
+        for (int i = 0; i < resultWordChars.Length; ++i)
+        {
+            if (resultChars[i] == RIGHT_SPOT)
             {
-                result.Append(WRONG_SPOT);
+                continue;
+            }
+
+            char c = guessWord[i];
+            if (resultWordChars.Contains(c))
+            {
+                resultChars[i] = WRONG_SPOT;
             }
             else
             {
-                result.Append(WRONG);
+                resultChars[i] = WRONG;
             }
-
-            ++idx;
         }
-        return result.ToString();
+        return new string(resultChars);
     }
 
     private static void AddGuessWord()
@@ -523,8 +532,11 @@ public static class Program
         int idx = 0;
         List<IEnumerable<string>> intersectCommonSets = new List<IEnumerable<string>>();
         List<IEnumerable<string>> intersectUncommonSets = new List<IEnumerable<string>>();
+        // For use in case IsSubtract = true only
         HashSet<CharKey> toRemoveKeys = new HashSet<CharKey>();
         HashSet<int> rightSpotIndices = new HashSet<int>();
+        List<char> rightChars = new List<char>(); // right guess chars, regardless of position
+        List<char> wrongChars = new List<char>();
         foreach (char guessState in guessParts[1])
         {
             if (guessState == WRONG)
@@ -537,6 +549,7 @@ public static class Program
                         Index = i
                     });
                 }
+                wrongChars.Add(guessParts[0][idx]);
             }
             else if (guessState == WRONG_SPOT)
             {
@@ -545,10 +558,12 @@ public static class Program
                     Char = guessParts[0][idx],
                     Index = idx
                 });
+                rightChars.Add(guessParts[0][idx]);
             }
             else if (guessState == RIGHT_SPOT)
             {
                 rightSpotIndices.Add(idx);
+                rightChars.Add(guessParts[0][idx]);
             }
             ++idx;
         }
@@ -568,20 +583,7 @@ public static class Program
                 {
                     foreach (var word in keepList1!)
                     {
-                        bool toKeep = true;
-                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                        {
-                            if (toRemoveKeys.Contains(otherKey))
-                            {
-                                toKeep = false;
-                                break;
-                            }
-                        }
-
-                        if (toKeep)
-                        {
-                            newList1.Add(word.WordStr);
-                        }
+                        newList1.Add(word.WordStr);
                     }
                 }
                 intersectCommonSets.Add(newList1);
@@ -591,20 +593,7 @@ public static class Program
                 {
                     foreach (var word in keepList2!)
                     {
-                        bool toKeep = true;
-                        foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                        {
-                            if (toRemoveKeys.Contains(otherKey))
-                            {
-                                toKeep = false;
-                                break;
-                            }
-                        }
-
-                        if (toKeep)
-                        {
-                            newList2.Add(word.WordStr);
-                        }
+                        newList2.Add(word.WordStr);
                     }
                 }
                 intersectUncommonSets.Add(newList2);
@@ -631,40 +620,14 @@ public static class Program
                     {
                         foreach (var word in keepList1!)
                         {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                commonWordList.Add(word.WordStr);
-                            }
+                            commonWordList.Add(word.WordStr);
                         }
                     }
                     if (ss.UncommonWordMap.TryGetValue(unionKeepKey, out var keepList2))
                     {
                         foreach (var word in keepList2!)
                         {
-                            bool toKeep = true;
-                            foreach (var otherKey in word.CharKeysExcludeSourceKey)
-                            {
-                                if (toRemoveKeys.Contains(otherKey))
-                                {
-                                    toKeep = false;
-                                    break;
-                                }
-                            }
-
-                            if (toKeep)
-                            {
-                                uncommonWordList.Add(word.WordStr);
-                            }
+                            uncommonWordList.Add(word.WordStr);
                         }
                     }
                 }
@@ -691,6 +654,34 @@ public static class Program
                 }
                 ++idx;
             }
+
+            if (result.CommonWordList.Count > 0)
+            {
+                List<string> toRemove = new List<string>();
+                // now we do filtering out wrong spot
+                foreach (var word in result.CommonWordList)
+                {
+                    var chars = word.ToList();
+                    foreach (char c in rightChars)
+                    {
+                        chars.Remove(c);
+                    }
+
+                    foreach (char c in wrongChars)
+                    {
+                        if (chars.Contains(c))
+                        {
+                            toRemove.Add(word);
+                            break;
+                        }
+                    }
+                }
+
+                foreach (var word in toRemove)
+                {
+                    result.CommonWordList.Remove(word);
+                }
+            }
         }
         if (intersectUncommonSets.Count > 0)
         {
@@ -706,6 +697,34 @@ public static class Program
                     result.UncommonWordList.IntersectWith(s);
                 }
                 ++idx;
+            }
+
+            if (result.UncommonWordList.Count > 0)
+            {
+                List<string> toRemove = new List<string>();
+                // now we do filtering out wrong spot
+                foreach (var word in result.UncommonWordList)
+                {
+                    var chars = word.ToList();
+                    foreach (char c in rightChars)
+                    {
+                        chars.Remove(c);
+                    }
+
+                    foreach (char c in wrongChars)
+                    {
+                        if (chars.Contains(c))
+                        {
+                            toRemove.Add(word);
+                            break;
+                        }
+                    }
+                }
+
+                foreach (var word in toRemove)
+                {
+                    result.UncommonWordList.Remove(word);
+                }
             }
         }
 

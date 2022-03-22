@@ -100,7 +100,7 @@
                         Char = c,
                         Index = idx
                     };
-                    CommonWordMap[key].Remove(ConstructWordObject(key, line));
+                    CommonWordMap[key].Remove(ConstructWordObject(line));
                     ++idx;
                 }
             }
@@ -114,7 +114,7 @@
                         Char = c,
                         Index = idx
                     };
-                    UncommonWordMap[key].Remove(ConstructWordObject(key, line));
+                    UncommonWordMap[key].Remove(ConstructWordObject(line));
                     ++idx;
                 }
             }
@@ -134,30 +134,17 @@
                 {
                     map.Add(key, value = new HashSet<Word>());
                 }
-                map[key].Add(ConstructWordObject(key, line));
+                map[key].Add(ConstructWordObject(line));
                 ++idx;
             }
         }
 
-        private static Word ConstructWordObject(CharKey sourceKey, string line)
+        private static Word ConstructWordObject(string line)
         {
             var word = new Word()
             {
                 WordStr = line
             };
-            int idx2 = 0;
-            foreach (char exclc in line)
-            {
-                if (idx2 != sourceKey.Index)
-                {
-                    word.CharKeysExcludeSourceKey.Add(new CharKey()
-                    {
-                        Char = exclc,
-                        Index = idx2
-                    });
-                }
-                ++idx2;
-            }
             return word;
         }
     }

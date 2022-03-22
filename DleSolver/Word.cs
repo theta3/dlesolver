@@ -3,7 +3,6 @@
     internal class Word
     {
         public string WordStr { get; set; } = string.Empty;
-        public HashSet<CharKey> CharKeysExcludeSourceKey { get; set; } = new HashSet<CharKey>();
 
         public override bool Equals(object? obj)
         {
