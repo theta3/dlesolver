@@ -6,60 +6,58 @@ using System.Text;
 public static class Program
 {
     private const int NUM_OF_CHARS = 5;
-    private const char WRONG = '_';
+    internal const char WRONG = '_';
     private const char WRONG_SPOT = '?';
     private const char RIGHT_SPOT = '+';
     private const char SEPARATOR = ':';
     private const int MAX_CONCURRENCY = 100;
-    private static HashSet<string>[] commonWordLists;
-    private static HashSet<string>[] uncommonWordLists;
-    private static Dictionary<CharKey, HashSet<Word>>[] commonWordMaps;
-    private static Dictionary<CharKey, HashSet<Word>>[] uncommonWordMaps;
-    private static int[] indices;
-    private static ConcurrentBag<string> guessResults = new ConcurrentBag<string>();
+    private static SolutionSet[] solutionSets = new SolutionSet[1];
+    private static SolutionSet originalSolutionSet = new SolutionSet();
+    private static string pruneRatePath = string.Empty;
 
     public static void Main(string[] args)
     {
-        Console.WriteLine("Welcome to -Dle Solver v0.7");
-        Console.Write("Number of puzzles:");
-        int pnumber = int.Parse(Console.ReadLine() ?? "1");
-        commonWordLists = new HashSet<string>[pnumber];
-        uncommonWordLists = new HashSet<string>[pnumber];
-        commonWordMaps = new Dictionary<CharKey, HashSet<Word>>[pnumber];
-        uncommonWordMaps = new Dictionary<CharKey, HashSet<Word>>[pnumber];
-        indices = new int[pnumber];
-        for (int i = 0; i < pnumber; i++)
-        {
-            commonWordLists[i] = new HashSet<string>();
-            uncommonWordLists[i] = new HashSet<string>();
-            commonWordMaps[i] = new Dictionary<CharKey, HashSet<Word>>();
-            uncommonWordMaps[i] = new Dictionary<CharKey, HashSet<Word>>();
-            indices[i] = i;
-        }
+        Console.WriteLine("Welcome to -Dle Solver v0.9");
+        solutionSets[0] = new SolutionSet();
         int option = 0;
         do
         {
-            for (int i = 0; i < pnumber; ++i)
+            Console.WriteLine();
+            for (int i = 0; i < solutionSets.Length; ++i)
             {
-                Console.WriteLine("[{2}]: {0} common words - {1} uncommon words", commonWordLists[i].Count, uncommonWordLists[i].Count, i);
+                Console.WriteLine("[{2}]: {0} common words - {1} uncommon words", solutionSets[i].CommonWordList.Count, solutionSets[i].UncommonWordList.Count, solutionSets[i].PuzzleIndex);
             }
+            Console.WriteLine("[ORIG]: {0} common words - {1} uncommon words", originalSolutionSet.CommonWordList.Count, originalSolutionSet.UncommonWordList.Count);
+            Console.WriteLine();
             Console.WriteLine("0. Exit");
             Console.WriteLine("1. Read common word list");
             Console.WriteLine("2. Read uncommon word list");
             Console.WriteLine("3. Read excluded word list");
             Console.WriteLine("4. Enter a guess word");
             Console.WriteLine("5. Make a guess");
-            Console.WriteLine("6. Clear");
+            Console.WriteLine("6. Clear all");
             Console.WriteLine("7. Generate guess result");
             Console.WriteLine("8. Convert retention rate to prune rate");
+            Console.WriteLine("9. Set number of puzzle (this will reset)");
+            Console.WriteLine("10. Reset");
             int.TryParse(Console.ReadLine(), out option);
             switch(option)
             {
                 case 1:
-                    ReadWords(commonWordLists, commonWordMaps).Wait();
+                    ReadWords(solutionSets.Select(s => s.CommonWordList)).Wait();
+                    foreach (var s in solutionSets)
+                    {
+                        s.RecalculateWordMaps();
+                    }
+                    originalSolutionSet = solutionSets[0].Copy();
                     break;
                 case 2:
-                    ReadWords(uncommonWordLists, uncommonWordMaps).Wait();
+                    ReadWords(solutionSets.Select(s => s.UncommonWordList)).Wait();
+                    foreach (var s in solutionSets)
+                    {
+                        s.RecalculateWordMaps();
+                    }
+                    originalSolutionSet = solutionSets[0].Copy();
                     break;
                 case 3:
                     SubtractWords().Wait();
@@ -71,19 +69,37 @@ public static class Program
                     Guesses().Wait();
                     break;
                 case 6:
-                    for (int i = 0; i < pnumber; i++)
+                    foreach (var s in solutionSets)
                     {
-                        commonWordLists[i].Clear();
-                        uncommonWordLists[i].Clear();
-                        commonWordMaps[i].Clear();
-                        uncommonWordMaps[i].Clear();
+                        s.Clear();
                     }
+                    originalSolutionSet.Clear();
                     break;
                 case 7:
                     GenerateMatchResult();
                     break;
                 case 8:
                     ConvertRetentionToPruneRate().Wait();
+                    break;
+                case 9:
+                    Console.Write("Number of puzzles:");
+                    int pnumber = int.Parse(Console.ReadLine() ?? "1");
+                    if (pnumber > 0)
+                    {
+                        solutionSets = new SolutionSet[pnumber];
+                        for (int i = 0; i < solutionSets.Length; i++)
+                        {
+                            solutionSets[i] = originalSolutionSet.Copy();
+                            solutionSets[i].PuzzleIndex = i;
+                        }
+                    }
+                    break;
+                case 10:
+                    for (int i = 0; i < solutionSets.Length; i++)
+                    {
+                        solutionSets[i] = originalSolutionSet.Copy();
+                        solutionSets[i].PuzzleIndex = i;
+                    }
                     break;
             }
         }
@@ -117,51 +133,140 @@ public static class Program
     }
     private static async Task Guesses()
     {
-        guessResults.Clear();
-        await Parallel.ForEachAsync(indices, async (idx, token) =>
-            await Guess(idx));
-        Console.WriteLine();
-        foreach (string r in guessResults)
+        ConcurrentBag<GuessResult> guessResults = new ConcurrentBag<GuessResult>();
+        Console.Write("Saved prune rate file path (ENTER to skip):");
+        pruneRatePath = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(pruneRatePath))
         {
-            Console.WriteLine(r);
-        }
-    }
-
-    private static async Task Guess(int listIndex)
-    {
-        var commonWordList = commonWordLists[listIndex];
-        var uncommonWordList = uncommonWordLists[listIndex];
-        int originalSize = commonWordList.Count + uncommonWordList.Count;
-        double maxAvgPruneRate = 0;
-        string selectedGuessMaxAvg = string.Empty;
-        string[] commonWordArray = commonWordList.ToArray();
-        string[] uncommonWordArray = uncommonWordList.ToArray();
-        // Arrays of min prune rate. Arrays of avg prune rate
-        double[] avgCommonPruneRates = new double[commonWordArray.Length];
-        double[] avgUncommonPruneRates = new double[uncommonWordArray.Length];
-        string pruneRatePath = string.Empty;
-        if (listIndex == 0)
-        {
-            Console.Write("Saved prune rate file path (ENTER to skip):");
-            pruneRatePath = Console.ReadLine() ?? string.Empty;
-        }
-        Dictionary<string, double> savedPruneRates = new Dictionary<string, double>();
-        if (!string.IsNullOrWhiteSpace(pruneRatePath))
-        {
-            string[] lines = await File.ReadAllLinesAsync(pruneRatePath);
-            foreach (var line in lines)
+            List<string> guesses = ConstructGuessSet();
+            Console.WriteLine("Consider {0} guesses", guesses.Count());
+            List<SolutionSet> moreThan1Sets = new List<SolutionSet>();
+            foreach (var s in solutionSets)
             {
-                if (!string.IsNullOrWhiteSpace(line))
+                if (s.Count() == 1)
                 {
-                    var parts = line.Split(SEPARATOR);
-                    if (parts.Length == 2 && double.TryParse(parts[1], out double rate))
+                    guessResults.Add(new GuessResult()
                     {
-                        savedPruneRates[parts[0]] = rate;
-                    }
+                        PuzzleIndex = s.PuzzleIndex,
+                        Guess = s.FirstWord,
+                        PruneRate = 1,
+                        PruneCount = 1
+                    });
+                }
+                else
+                {
+                    moreThan1Sets.Add(s);
+                }
+            }
+            double[,] pruneRates = new double[guesses.Count, moreThan1Sets.Count];
+            Parallel.ForEach(guesses, (guess) =>
+            {
+                EvaluateGuessWordAcrossSolutionSets(guess, moreThan1Sets, guessResults);
+            });
+
+            Console.WriteLine();
+            bool found = false;
+            foreach (var r in guessResults.OrderByDescending(r => r.PruneCount))
+            {
+                if (found)
+                {
+                    break;
+                }
+
+                Console.WriteLine(r);
+                if (r.PuzzleIndex == null && r.PruneRate < 1)
+                {
+                    found = true;
                 }
             }
         }
+        else
+        {
+            await PersistentStartingGuess();
+        }
+    }
 
+    private static List<string> ConstructGuessSet()
+    {
+        HashSet<string> result = new HashSet<string>();
+        foreach (var s in solutionSets)
+        {
+            if (s.Count() == 1)
+            {
+                continue;
+            }
+            if (s.Count() > 3 && s.WrongCharIndices.Count == 1)
+            {
+                foreach (var w in s.CommonWordList)
+                {
+                    char c = w[s.WrongCharIndices.Single()];
+                    for (int i = 0; i < NUM_OF_CHARS; i++)
+                    {
+                        CharKey other = new CharKey()
+                        {
+                            Char = c,
+                            Index = i
+                        };
+                        foreach (var otherWords in originalSolutionSet.CommonWordMap[other])
+                        {
+                            result.Add(otherWords.WordStr);
+                        }
+                    }
+                }
+                foreach (var w in s.UncommonWordList)
+                {
+                    char c = w[s.WrongCharIndices.Single()];
+                    for (int i = 0; i < NUM_OF_CHARS; i++)
+                    {
+                        CharKey other = new CharKey()
+                        {
+                            Char = c,
+                            Index = i
+                        };
+                        foreach (var otherWords in originalSolutionSet.UncommonWordMap[other])
+                        {
+                            result.Add(otherWords.WordStr);
+                        }
+                    }
+                }
+            }
+
+            foreach (var w in s.CommonWordList)
+            {
+                result.Add(w);
+            }
+            foreach (var w in s.UncommonWordList)
+            {
+                result.Add(w);
+            }
+        }
+        return result.ToList();
+    }
+
+    private static async Task PersistentStartingGuess()
+    {
+        SolutionSet first = solutionSets[0];
+        int originalSize = first.Count();
+        double maxAvgPruneRate = 0;
+        string selectedGuessMaxAvg = string.Empty;
+        string[] commonWordArray = first.CommonWordList.ToArray();
+        string[] uncommonWordArray = first.UncommonWordList.ToArray();
+        // Arrays of min prune rate. Arrays of avg prune rate
+        double[] avgCommonPruneRates = new double[commonWordArray.Length];
+        double[] avgUncommonPruneRates = new double[uncommonWordArray.Length];
+        Dictionary<string, double> savedPruneRates = new Dictionary<string, double>();
+        string[] lines = await File.ReadAllLinesAsync(pruneRatePath);
+        foreach (var line in lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                var parts = line.Split(SEPARATOR);
+                if (parts.Length == 2 && double.TryParse(parts[1], out double rate))
+                {
+                    savedPruneRates[parts[0]] = rate;
+                }
+            }
+        }
         int iterCount = commonWordArray.Length / MAX_CONCURRENCY + 1;
         for (int i = 0; i < iterCount; i++)
         {
@@ -172,12 +277,9 @@ public static class Program
             List<string> newLines = new List<string>();
             // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
             Parallel.ForEach(smallerArray, (word, state, index) =>
-                EvaluateGuessWord(listIndex, word, (int)(startIndex + index), commonWordArray, uncommonWordArray, originalSize, avgCommonPruneRates, savedPruneRates, newLines)
+                EvaluateStartingGuessWord(first, word, (int)(startIndex + index), commonWordArray, uncommonWordArray, originalSize, avgCommonPruneRates, savedPruneRates, newLines)
             );
-            if (!string.IsNullOrWhiteSpace(pruneRatePath))
-            {
-                await File.AppendAllLinesAsync(pruneRatePath, newLines);
-            }
+            await File.AppendAllLinesAsync(pruneRatePath, newLines);
         }
         iterCount = uncommonWordArray.Length / MAX_CONCURRENCY + 1;
         for (int i = 0; i < iterCount; i++)
@@ -189,12 +291,9 @@ public static class Program
             List<string> newLines = new List<string>();
             // Parallel.ForEach https://stackoverflow.com/questions/39713258/c-sharp-parallel-foreach-loop-finding-index
             Parallel.ForEach(smallerArray, (word, state, index) =>
-                EvaluateGuessWord(listIndex, word, (int)(startIndex + index), uncommonWordArray, commonWordArray, originalSize, avgUncommonPruneRates, savedPruneRates, newLines)
+                EvaluateStartingGuessWord(first, word, (int)(startIndex + index), uncommonWordArray, commonWordArray, originalSize, avgUncommonPruneRates, savedPruneRates, newLines)
             );
-            if (!string.IsNullOrWhiteSpace(pruneRatePath))
-            {
-                await File.AppendAllLinesAsync(pruneRatePath, newLines);
-            }
+            await File.AppendAllLinesAsync(pruneRatePath, newLines);
         }
         // find max avg
         for (int i = 0; i < commonWordArray.Length; i++)
@@ -214,18 +313,50 @@ public static class Program
                 selectedGuessMaxAvg = uncommonWordArray[i];
             }
         }
-        guessResults.Add(string.Format("PUZZLE [{2}]: final selectedGuessMaxAvg {0}; prune rate: {1}", selectedGuessMaxAvg, maxAvgPruneRate, listIndex));
+        Console.WriteLine("Best starting word is \"{0}\", avg prune rate {1}", selectedGuessMaxAvg, maxAvgPruneRate);
     }
 
-    /*private static Dictionary<CharKey, HashSet<string>> DupDict(Dictionary<CharKey, HashSet<string>> input)
+    private static void EvaluateGuessWordAcrossSolutionSets(string guess, List<SolutionSet> moreThan1Sets, ConcurrentBag<GuessResult> guessResults)
     {
-        var result = new Dictionary<CharKey, HashSet<string>>();
-        foreach (var kv in input)
+        var result = new GuessResult();
+        int originalSize = moreThan1Sets.Sum(s => s.Count());
+        ConcurrentBag<double> pruneCountPerSet = new ConcurrentBag<double>();
+        Parallel.ForEach(moreThan1Sets, ss =>
         {
-            result[kv.Key] = new HashSet<string>(kv.Value);
+            EvaluateGuessWordOneSolutionSet(guess, ss, pruneCountPerSet);
+        });
+        result.PruneCount = pruneCountPerSet.Sum(); 
+        result.Guess = guess;
+        result.PruneRate = result.PruneCount / originalSize;
+        Console.WriteLine("{0}: {1}({2})", result.Guess, result.PruneRate, result.PruneCount);
+        guessResults.Add(result);
+    }
+
+    private static void EvaluateGuessWordOneSolutionSet(string guess, SolutionSet ss, ConcurrentBag<double> pruneRatePerSet /* to store result */)
+    {
+        double sumPruneRate = 0;
+        foreach (var resultWord in ss.CommonWordList)
+        {
+            if (!string.Equals(guess, resultWord, StringComparison.Ordinal))
+            {
+                var pruneRate = EvaluatePruneRate(ss, guess, resultWord, ss.Count());
+                sumPruneRate += pruneRate;
+            }
         }
-        return result;
-    }*/
+
+        foreach (string resultWord in ss.UncommonWordList)
+        {
+            if (!string.Equals(guess, resultWord, StringComparison.Ordinal))
+            {
+                var pruneRate = EvaluatePruneRate(ss, guess, resultWord, ss.Count());
+                sumPruneRate += pruneRate;
+            }
+        }
+        double avgPruneRate = sumPruneRate / ss.Count();
+        avgPruneRates[index] = avgPruneRate;
+        savedPruneRates[guessWord] = avgPruneRate;
+        newLines.Add(guessWord + SEPARATOR + avgPruneRate);
+    }
 
     private static void GenerateMatchResult()
     {
@@ -265,48 +396,57 @@ public static class Program
     {
         Console.Write("Enter word:");
         string w = Console.ReadLine() ?? string.Empty;
-        foreach (var i in indices)
+        foreach (var s in solutionSets)
         {
-            Console.WriteLine("PUZZLE " + i);
+            Console.WriteLine("PUZZLE " + s.PuzzleIndex);
             Console.Write("Enter guess result:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot:", WRONG, WRONG_SPOT, RIGHT_SPOT);
             string r = Console.ReadLine() ?? string.Empty;
             if (r.Length == NUM_OF_CHARS)
             {
-                AddGuessWord(i, w + ":" + r);
+                AddGuessWord(s, w + ":" + r);
+                s.CaptureWrongCharIndices(r);
             }
         }
     }
 
-    private static void AddGuessWord(int pzIdx, string guessWord)
+    private static void AddGuessWord(SolutionSet s, string guessWord)
     {
-        var newLists = EvaluateGuessWord(pzIdx, guessWord);
+        var newLists = EvaluateGuessWord(s, guessWord);
         if (newLists.IsSubtract)
         {
             foreach (var word in newLists.CommonWordList)
             {
-                commonWordLists[pzIdx].Remove(word);
+                s.CommonWordList.Remove(word);
             }
 
             foreach (var word in newLists.UncommonWordList)
             {
-                uncommonWordLists[pzIdx].Remove(word);
+                s.UncommonWordList.Remove(word);
             }
         }
         else
         {
-            commonWordLists[pzIdx] = newLists.CommonWordList;
-            uncommonWordLists[pzIdx] = newLists.UncommonWordList;
+            s.CommonWordList = newLists.CommonWordList;
+            s.UncommonWordList = newLists.UncommonWordList;
         }
-        RecalculateWordMaps(pzIdx);
+        s.RecalculateWordMaps();
     }
 
-    private static void EvaluateGuessWord(int pzIdx, string guessWord,
-        int index, string[] myWordArray, string[] otherWordArray, int originalSize, double[] avgPruneRates, Dictionary<string, double> savedPruneRates, List<string> newLines)
+    private static void EvaluateStartingGuessWord(
+        SolutionSet first,
+        string guessWord,
+        int index, 
+        string[] myWordArray,
+        string[] otherWordArray,
+        int originalSize,
+        double[] avgPruneRates,
+        Dictionary<string, double> savedPruneRates,
+        List<string> newLines)
     {
         if (savedPruneRates.TryGetValue(guessWord, out double val))
         {
             avgPruneRates[index] = val;
-            Console.Write("[{2}]:{0}:{1}/ ", guessWord, val, pzIdx);
+            Console.Write("{0}:{1}/ ", guessWord, val);
             return;
         }
         double sumPruneRate = 0;
@@ -315,32 +455,32 @@ public static class Program
             if (index != i)
             {
                 string resultWord = myWordArray[i];
-                var pruneRate = EvaluatePruneRate(pzIdx, guessWord, resultWord, originalSize);
+                var pruneRate = EvaluatePruneRate(first, guessWord, resultWord, originalSize);
                 sumPruneRate += pruneRate;
             }
         }
 
         foreach (string resultWord in otherWordArray)
         {
-            var pruneRate = EvaluatePruneRate(pzIdx, guessWord, resultWord, originalSize);
+            var pruneRate = EvaluatePruneRate(first, guessWord, resultWord, originalSize);
             sumPruneRate += pruneRate;
         }
         double avgPruneRate = sumPruneRate / (originalSize - 1);
         avgPruneRates[index] = avgPruneRate;
         savedPruneRates[guessWord] = avgPruneRate;
         newLines.Add(guessWord + SEPARATOR + avgPruneRate);
-        Console.Write("[{2}]:{0}:{1}; ", guessWord, avgPruneRate, pzIdx);
+        Console.Write("{0}:{1}; ", guessWord, avgPruneRate);
     }
 
-    private static double EvaluatePruneRate(int pzIdx, string guessWord, string resultWord, int originalSize)
+    private static double EvaluatePruneRate(SolutionSet ss, string guessWord, string resultWord, int originalSize)
     {
         string guessResult = GenerateMatchResult(guessWord, resultWord);
-        var newLists = EvaluateGuessWord(pzIdx, guessWord + SEPARATOR + guessResult);
+        var newLists = EvaluateGuessWord(ss, guessWord + SEPARATOR + guessResult);
         return newLists.IsSubtract ?
             ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count))/originalSize :
             1.0 - ((double)(newLists.CommonWordList.Count + newLists.UncommonWordList.Count)) / originalSize;
     }
-    private static EvalResult EvaluateGuessWord(int pzIdx, string guessWord)
+    private static EvalResult EvaluateGuessWord(SolutionSet ss, string guessWord)
     {
         string[] guessParts = guessWord.Split(':');
         int idx = 0;
@@ -386,7 +526,7 @@ public static class Program
                     Char = guessChar,
                     Index = idx
                 };
-                if (commonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList1))
+                if (ss.CommonWordMap.TryGetValue(intersectKey, out var keepList1))
                 {
                     HashSet<string> newList = new HashSet<string>();
                     foreach (var word in keepList1!)
@@ -411,7 +551,7 @@ public static class Program
                         intersectCommonSets.Add(newList);
                     }
                 }
-                if (uncommonWordMaps[pzIdx].TryGetValue(intersectKey, out var keepList2))
+                if (ss.UncommonWordMap.TryGetValue(intersectKey, out var keepList2))
                 {
                     HashSet<string> newList = new HashSet<string>();
                     foreach (var word in keepList2!)
@@ -455,7 +595,7 @@ public static class Program
                 }
                 foreach (var unionKeepKey in unionKeepKeys)
                 {
-                    if (commonWordMaps[pzIdx].TryGetValue(unionKeepKey, out var keepList1))
+                    if (ss.CommonWordMap.TryGetValue(unionKeepKey, out var keepList1))
                     {
                         foreach (var word in keepList1!)
                         {
@@ -475,7 +615,7 @@ public static class Program
                             }
                         }
                     }
-                    if (uncommonWordMaps[pzIdx].TryGetValue(unionKeepKey, out var keepList2))
+                    if (ss.UncommonWordMap.TryGetValue(unionKeepKey, out var keepList2))
                     {
                         foreach (var word in keepList2!)
                         {
@@ -549,7 +689,7 @@ public static class Program
             result.IsSubtract = true;
             foreach (var removeKey in toRemoveKeys)
             {
-                if (commonWordMaps[pzIdx].TryGetValue(removeKey, out var list1))
+                if (ss.CommonWordMap.TryGetValue(removeKey, out var list1))
                 {
                     foreach (var word in list1)
                     {
@@ -557,7 +697,7 @@ public static class Program
                     }
                 }
 
-                if (uncommonWordMaps[pzIdx].TryGetValue(removeKey, out var list2))
+                if (ss.UncommonWordMap.TryGetValue(removeKey, out var list2))
                 {
                     foreach (var word in list2)
                     {
@@ -570,21 +710,7 @@ public static class Program
         return result;
     }
 
-    private static void RecalculateWordMaps(int pzIdx)
-    {
-        commonWordMaps[pzIdx].Clear();
-        uncommonWordMaps[pzIdx].Clear();
-        foreach (var word in commonWordLists[pzIdx])
-        {
-            AddWordToWordMap(word, commonWordMaps[pzIdx]);
-        }
-        foreach (var word in uncommonWordLists[pzIdx])
-        {
-            AddWordToWordMap(word, uncommonWordMaps[pzIdx]);
-        }
-    }
-
-    private static async Task ReadWords(HashSet<string>[] lists, Dictionary<CharKey, HashSet<Word>>[] maps)
+    private static async Task ReadWords(IEnumerable<HashSet<string>> lists)
     {
         Console.Write("Word list file path:");
         string path = Console.ReadLine() ?? string.Empty;
@@ -593,54 +719,12 @@ public static class Program
         {
             if (!string.IsNullOrWhiteSpace(line))
             {
-                for (int i = 0; i < lists.Length; i++)
+                foreach (var list in lists)
                 {
-                    lists[i].Add(line);
-                    AddWordToWordMap(line, maps[i]);
+                    list.Add(line);
                 }
             }
         }
-    }
-
-    private static void AddWordToWordMap(string line, Dictionary<CharKey, HashSet<Word>> map)
-    {
-        int idx = 0;
-        foreach (char c in line)
-        {
-            var key = new CharKey()
-            {
-                Char = c,
-                Index = idx
-            };
-            if (!map.TryGetValue(key, out var value))
-            {
-                map.Add(key, value = new HashSet<Word>());
-            }
-            map[key].Add(ConstructWordObject(key, line));
-            ++idx;
-        }
-    }
-
-    private static Word ConstructWordObject(CharKey sourceKey, string line)
-    {
-        var word = new Word()
-        {
-            WordStr = line
-        };
-        int idx2 = 0;
-        foreach (char exclc in line)
-        {
-            if (idx2 != sourceKey.Index)
-            {
-                word.CharKeysExcludeSourceKey.Add(new CharKey()
-                {
-                    Char = exclc,
-                    Index = idx2
-                });
-            }
-            ++idx2;
-        }
-        return word;
     }
 
     private static async Task SubtractWords()
@@ -652,36 +736,9 @@ public static class Program
         {
             if (!string.IsNullOrWhiteSpace(line))
             {
-                for (int i = 0; i < commonWordLists.Length; i++)
+                foreach (var ss in solutionSets)
                 {
-                    if (commonWordLists[i].Remove(line))
-                    {
-                        int idx = 0;
-                        foreach (char c in line)
-                        {
-                            var key = new CharKey()
-                            {
-                                Char = c,
-                                Index = idx
-                            };
-                            commonWordMaps[i][key].Remove(ConstructWordObject(key, line));
-                            ++idx;
-                        }
-                    }
-                    else if (uncommonWordLists[i].Remove(line))
-                    {
-                        int idx = 0;
-                        foreach (char c in line)
-                        {
-                            var key = new CharKey()
-                            {
-                                Char = c,
-                                Index = idx
-                            };
-                            uncommonWordMaps[i][key].Remove(ConstructWordObject(key, line));
-                            ++idx;
-                        }
-                    }
+                    ss.SubtractWord(line);
                 }
             }
         }
