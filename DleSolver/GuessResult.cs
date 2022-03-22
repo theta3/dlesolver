@@ -10,8 +10,8 @@
         public override string ToString()
         {
             return PuzzleIndex == null ?
-                string.Format("Final selectedGuessMaxAvg {0}; prune rate: {1} ({2})", Guess, PruneRate, PruneCount) :
-                string.Format("[3] Final selectedGuessMaxAvg {0}; prune rate: {1} ({2})", Guess, PruneRate, PruneCount, PuzzleIndex);
+                string.Format("Final selected guess: \"{0}\": {1} ({2})", Guess, PruneRate, PruneCount) :
+                string.Format("[3] Final selected guess: \"{0}\": {1} ({2})", Guess, PruneRate, PruneCount, PuzzleIndex);
         }
     }
 }

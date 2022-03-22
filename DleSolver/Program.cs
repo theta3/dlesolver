@@ -161,6 +161,11 @@ public static class Program
             int originalSize = solutionSets.Sum(s => s.Count());
             foreach (var s in solutionSets)
             {
+                if (s.Count() == 0)
+                {
+                    continue;
+                }
+
                 if (s.Count() == 1)
                 {
                     guessResults.Add(new GuessResult()
@@ -417,7 +422,7 @@ public static class Program
         foreach (var s in solutionSets)
         {
             Console.WriteLine("PUZZLE " + s.PuzzleIndex);
-            Console.Write("Enter guess result:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot:", WRONG, WRONG_SPOT, RIGHT_SPOT);
+            Console.Write("Enter guess result:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot; ENTER to skip:", WRONG, WRONG_SPOT, RIGHT_SPOT);
             string r = Console.ReadLine() ?? string.Empty;
             if (r.Length == NUM_OF_CHARS)
             {
