@@ -17,7 +17,7 @@ public static class Program
 
     public static void Main(string[] args)
     {
-        Console.WriteLine("Welcome to -Dle Solver v0.9");
+        Console.WriteLine("Welcome to -Dle Solver v1.0");
         solutionSets[0] = new SolutionSet();
         int option = 0;
         do
@@ -218,37 +218,48 @@ public static class Program
             {
                 continue;
             }
-            if (s.Count() > 3 && s.WrongCharIndices.Count == 1)
+            if (s.Count() > 2 && s.Count() < 10)
             {
+                Console.WriteLine("Guess set expansion for PUZZLE [{0}]", s.PuzzleIndex);
                 foreach (var w in s.CommonWordList)
                 {
-                    char c = w[s.WrongCharIndices.Single()];
-                    for (int i = 0; i < NUM_OF_CHARS; i++)
+                    foreach (char c in w)
                     {
-                        CharKey other = new CharKey()
+                        for (int i = 0; i < NUM_OF_CHARS; i++)
                         {
-                            Char = c,
-                            Index = i
-                        };
-                        foreach (var otherWords in originalSolutionSet.CommonWordMap[other])
-                        {
-                            result.Add(otherWords.WordStr);
+                            CharKey other = new CharKey()
+                            {
+                                Char = c,
+                                Index = i
+                            };
+                            if (originalSolutionSet.CommonWordMap.TryGetValue(other, out HashSet<Word> ws))
+                            {
+                                foreach (var otherWords in ws)
+                                {
+                                    result.Add(otherWords.WordStr);
+                                }
+                            }
                         }
                     }
                 }
                 foreach (var w in s.UncommonWordList)
                 {
-                    char c = w[s.WrongCharIndices.Single()];
-                    for (int i = 0; i < NUM_OF_CHARS; i++)
+                    foreach (char c in w)
                     {
-                        CharKey other = new CharKey()
+                        for (int i = 0; i < NUM_OF_CHARS; i++)
                         {
-                            Char = c,
-                            Index = i
-                        };
-                        foreach (var otherWords in originalSolutionSet.UncommonWordMap[other])
-                        {
-                            result.Add(otherWords.WordStr);
+                            CharKey other = new CharKey()
+                            {
+                                Char = c,
+                                Index = i
+                            };
+                            if (originalSolutionSet.UncommonWordMap.TryGetValue(other, out HashSet<Word> ws))
+                            {
+                                foreach (var otherWords in ws)
+                                {
+                                    result.Add(otherWords.WordStr);
+                                }
+                            }
                         }
                     }
                 }
@@ -419,6 +430,10 @@ public static class Program
     {
         Console.Write("Enter word:");
         string w = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrEmpty(w))
+        {
+            return;
+        }
         foreach (var s in solutionSets)
         {
             Console.WriteLine("PUZZLE " + s.PuzzleIndex);
@@ -427,7 +442,6 @@ public static class Program
             if (r.Length == NUM_OF_CHARS)
             {
                 AddGuessWord(s, w + ":" + r);
-                s.CaptureWrongCharIndices(r);
             }
         }
     }
@@ -549,9 +563,9 @@ public static class Program
                     Char = guessChar,
                     Index = idx
                 };
+                HashSet<string> newList1 = new HashSet<string>();
                 if (ss.CommonWordMap.TryGetValue(intersectKey, out var keepList1))
                 {
-                    HashSet<string> newList = new HashSet<string>();
                     foreach (var word in keepList1!)
                     {
                         bool toKeep = true;
@@ -566,17 +580,15 @@ public static class Program
 
                         if (toKeep)
                         {
-                            newList.Add(word.WordStr);
+                            newList1.Add(word.WordStr);
                         }
                     }
-                    if (newList.Count > 0)
-                    {
-                        intersectCommonSets.Add(newList);
-                    }
                 }
+                intersectCommonSets.Add(newList1);
+
+                HashSet<string> newList2 = new HashSet<string>();
                 if (ss.UncommonWordMap.TryGetValue(intersectKey, out var keepList2))
                 {
-                    HashSet<string> newList = new HashSet<string>();
                     foreach (var word in keepList2!)
                     {
                         bool toKeep = true;
@@ -591,14 +603,11 @@ public static class Program
 
                         if (toKeep)
                         {
-                            newList.Add(word.WordStr);
+                            newList2.Add(word.WordStr);
                         }
                     }
-                    if (newList.Count > 0)
-                    {
-                        intersectUncommonSets.Add(newList);
-                    }
                 }
+                intersectUncommonSets.Add(newList2);
             }
             else if (guessState == WRONG_SPOT)
             {
@@ -660,14 +669,8 @@ public static class Program
                     }
                 }
 
-                if (commonWordList.Count > 0)
-                {
-                    intersectCommonSets.Add(commonWordList);
-                }
-                if (uncommonWordList.Count > 0)
-                {
-                    intersectUncommonSets.Add(uncommonWordList);
-                }
+                intersectCommonSets.Add(commonWordList);
+                intersectUncommonSets.Add(uncommonWordList);
             }
             ++idx;
         }
@@ -737,6 +740,10 @@ public static class Program
     {
         Console.Write("Word list file path:");
         string path = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
         var lines = await File.ReadAllLinesAsync(path);
         foreach (var line in lines)
         {
