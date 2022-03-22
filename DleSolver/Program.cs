@@ -40,6 +40,7 @@ public static class Program
             Console.WriteLine("8. Convert retention rate to prune rate");
             Console.WriteLine("9. Set number of puzzle (this will reset)");
             Console.WriteLine("10. Reset");
+            Console.WriteLine("11. Print solution sets");
             int.TryParse(Console.ReadLine(), out option);
             switch(option)
             {
@@ -101,6 +102,23 @@ public static class Program
                         solutionSets[i].PuzzleIndex = i;
                     }
                     break;
+                case 11:
+                    foreach (var ss in solutionSets)
+                    {
+                        Console.WriteLine("PUZZLE [{0}]", ss.PuzzleIndex);
+                        Console.WriteLine("Commons:");
+                        foreach (var s in ss.CommonWordList)
+                        {
+                            Console.WriteLine(s);
+                        }
+                        Console.WriteLine("Uncommons:");
+                        foreach (var s in ss.UncommonWordList)
+                        {
+                            Console.WriteLine(s);
+                        }
+                        Console.WriteLine();
+                    }
+                    break;
             }
         }
         while (option > 0);
@@ -139,8 +157,8 @@ public static class Program
         if (string.IsNullOrWhiteSpace(pruneRatePath))
         {
             List<string> guesses = ConstructGuessSet();
-            Console.WriteLine("Consider {0} guesses", guesses.Count());
             List<SolutionSet> moreThan1Sets = new List<SolutionSet>();
+            int originalSize = solutionSets.Sum(s => s.Count());
             foreach (var s in solutionSets)
             {
                 if (s.Count() == 1)
@@ -150,7 +168,7 @@ public static class Program
                         PuzzleIndex = s.PuzzleIndex,
                         Guess = s.FirstWord,
                         PruneRate = 1,
-                        PruneCount = 1
+                        PruneCount = originalSize
                     });
                 }
                 else
@@ -158,7 +176,7 @@ public static class Program
                     moreThan1Sets.Add(s);
                 }
             }
-            double[,] pruneRates = new double[guesses.Count, moreThan1Sets.Count];
+            Console.WriteLine("Consider {0} guesses. {1} > 1 sets", guesses.Count(), moreThan1Sets.Count());
             Parallel.ForEach(guesses, (guess) =>
             {
                 EvaluateGuessWordAcrossSolutionSets(guess, moreThan1Sets, guessResults);
@@ -332,15 +350,17 @@ public static class Program
         guessResults.Add(result);
     }
 
-    private static void EvaluateGuessWordOneSolutionSet(string guess, SolutionSet ss, ConcurrentBag<double> pruneRatePerSet /* to store result */)
+    private static void EvaluateGuessWordOneSolutionSet(string guess, SolutionSet ss, ConcurrentBag<double> pruneCountPerSet /* to store result */)
     {
         double sumPruneRate = 0;
+        int rateCount = 0;
         foreach (var resultWord in ss.CommonWordList)
         {
             if (!string.Equals(guess, resultWord, StringComparison.Ordinal))
             {
                 var pruneRate = EvaluatePruneRate(ss, guess, resultWord, ss.Count());
                 sumPruneRate += pruneRate;
+                ++rateCount;
             }
         }
 
@@ -350,12 +370,10 @@ public static class Program
             {
                 var pruneRate = EvaluatePruneRate(ss, guess, resultWord, ss.Count());
                 sumPruneRate += pruneRate;
+                ++rateCount;
             }
         }
-        double avgPruneRate = sumPruneRate / ss.Count();
-        avgPruneRates[index] = avgPruneRate;
-        savedPruneRates[guessWord] = avgPruneRate;
-        newLines.Add(guessWord + SEPARATOR + avgPruneRate);
+        pruneCountPerSet .Add(sumPruneRate * ss.Count() / rateCount);
     }
 
     private static void GenerateMatchResult()
