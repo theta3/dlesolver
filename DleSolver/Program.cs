@@ -105,13 +105,13 @@ public static class Program
                 case 11:
                     foreach (var ss in solutionSets)
                     {
-                        Console.WriteLine("PUZZLE [{0}]", ss.PuzzleIndex);
-                        Console.WriteLine("Commons:");
+                        Console.WriteLine("PUZZLE [{0}]", 1 + ss.PuzzleIndex);
+                        Console.WriteLine("* Commons:");
                         foreach (var s in ss.CommonWordList)
                         {
                             Console.WriteLine(s);
                         }
-                        Console.WriteLine("Uncommons:");
+                        Console.WriteLine("* Uncommons:");
                         foreach (var s in ss.UncommonWordList)
                         {
                             Console.WriteLine(s);
