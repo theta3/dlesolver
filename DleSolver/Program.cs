@@ -445,7 +445,11 @@ public static class Program
         }
         foreach (var s in solutionSets)
         {
-            Console.WriteLine("PUZZLE " + s.PuzzleIndex);
+            Console.WriteLine("PUZZLE " + (1 +s.PuzzleIndex));
+            if (s.Count() <= 1)
+            {
+                Console.WriteLine("SKIP");
+            }
             Console.Write("Enter guess result:[{0}{1}{2}](5) where {0}: char not in result; {1}: char wrong spot; {2}: char correct spot; ENTER to skip:", WRONG, WRONG_SPOT, RIGHT_SPOT);
             string r = Console.ReadLine() ?? string.Empty;
             if (r.Length == NUM_OF_CHARS)
